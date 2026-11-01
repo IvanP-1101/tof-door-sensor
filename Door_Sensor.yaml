@@ -1,0 +1,83 @@
+# БАЗОВАЯ НАСТРОЙКА ПЛАТЫ И ПРОЦЕССОРА
+esphome:
+  name: door-sensor
+  name_add_mac_suffix: true
+  friendly_name: Door Sensor
+
+esp32:
+  board: esp32-c3-devkitc-02
+  variant: esp32c3
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+# ПОДКЛЮЧАЕМ ДРАЙВЕР ЛАЗЕРА VL53L1X С ГИТХАБА
+external_components:
+  - source: github://m5k10/vl53l1x_sensor
+    components: [ vl53l1x_sensor ]
+
+# СЕРВИСЫ БЕЗОПАСНОСТИ И ОБНОВЛЕНИЯ
+logger:
+
+api:
+  encryption:
+    
+ota:
+  - platform: esphome
+
+# НАСТРОЙКА WI-FI
+wifi:
+  
+  ap:
+    ssid: "Door Sensor"
+    ap_timeout: 15s
+  reboot_timeout: 0s
+
+captive_portal:
+
+i2c:
+  sda: GPIO8
+  scl: GPIO9
+
+# ЛАЗЕРНЫЙ СЕНСОР (ЖЕСТКО ФИКСИРУЕМ ТОЧНЫЙ РЕЖИМ SHORT ДО 1.3м)
+sensor:
+  - platform: vl53l1x_sensor
+    name: "Текущее расстояние"
+    id: distance_to_wall
+    update_interval: 0.05s
+    timing_budget: 50ms
+    distance_mode: SHORT     # Самый точный, узкий и стабильный режим
+    unit_of_measurement: "см"
+    filters:
+      - multiply: 100         # Превращаем метры лазера в сантиметры
+      - delta: 3.5            # Молчим, если расстояние прыгает в пределах 3.5 см
+
+# СИНХРОННЫЙ ПОЛЗУНОК С ДИНАМИЧЕСКОЙ НАДПИСЬЮ (ДО 130 СМ ДЛЯ РЕЖИМА SHORT)
+number:
+  - platform: template
+    name: "Порог срабатывания"
+    id: laser_threshold
+    optimistic: true
+    min_value: 10           
+    max_value: 130           # Ограничиваем ползунок строго до 130 см под режим SHORT
+    step: 1                 
+    initial_value: 80       
+    unit_of_measurement: "см"
+    restore_value: true
+    set_action:
+      then:
+        - lambda: |-
+            id(laser_threshold).publish_state(x);
+
+# ЛОГИЧЕСКИЙ ТРИГГЕР
+binary_sensor:
+  - platform: template
+    name: "Пересечение линии двери"
+    id: door_crossing
+    device_class: motion    
+    lambda: |-
+      if (id(distance_to_wall).state < id(laser_threshold).state) {
+        return true;        
+      } else {
+        return false;       
+      }
